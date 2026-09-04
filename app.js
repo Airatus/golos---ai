@@ -66,22 +66,29 @@ function stopTimer() { clearInterval(timerInterval); }
 // Старт записи
 async function startRecording() {
   const engine = engineSelect.value;
+  let success = false;
+
   if (engine === 'webspeech') {
-    startWebSpeech();
+    success = startWebSpeech();
   } else {
-    await startCloudRecord();
+    success = await startCloudRecord();
   }
 
-  isRecording = true;
-  recordBtn.classList.add('recording');
-  recordBtn.innerHTML = '⏹';
-  pulseRing.classList.add('active');
-  statusText.innerText = 'Слушаю вас...';
-  startTimer();
+  if (success) {
+    isRecording = true;
+    recordBtn.classList.add('recording');
+    recordBtn.innerHTML = '⏹';
+    pulseRing.classList.add('active');
+    statusText.innerText = 'Слушаю вас...';
+    startTimer();
+  }
 }
 
 // Остановка записи
 function stopRecording() {
+  if (!isRecording) return;
+  isRecording = false; // Блокируем рекурсию событий onend
+
   const engine = engineSelect.value;
   if (engine === 'webspeech' && speechRecognition) {
     speechRecognition.stop();
@@ -89,7 +96,6 @@ function stopRecording() {
     mediaRecorder.stop();
   }
 
-  isRecording = false;
   recordBtn.classList.remove('recording');
   recordBtn.innerHTML = '🎤';
   pulseRing.classList.remove('active');
@@ -102,7 +108,10 @@ function stopRecording() {
 // ==========================================
 function startWebSpeech() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRec) return alert('Браузер не поддерживает Web Speech. Выберите Gemini.');
+  if (!SpeechRec) {
+    alert('Браузер не поддерживает Web Speech. Выберите Gemini.');
+    return false;
+  }
   
   speechRecognition = new SpeechRec();
   speechRecognition.lang = 'ru-RU';
@@ -116,8 +125,9 @@ function startWebSpeech() {
       else interim += event.results[i][0].transcript;
     }
   };
-  speechRecognition.onend = () => { if (isRecording) stopRecording(); };
+  speechRecognition.onend = () => { stopRecording(); };
   speechRecognition.start();
+  return true;
 }
 
 // ==========================================
@@ -127,8 +137,7 @@ async function startCloudRecord() {
   const apiKey = apiKeyInput.value.trim();
   if (!apiKey) {
     alert('Укажите API-ключ в настройках!');
-    stopRecording();
-    return;
+    return false;
   }
 
   try {
@@ -144,14 +153,15 @@ async function startCloudRecord() {
       else await processWhisperAPI();
     };
     mediaRecorder.start();
+    return true;
   } catch (err) {
     alert('Нет доступа к микрофону: ' + err.message);
-    stopRecording();
+    return false;
   }
 }
 
 // ==========================================
-// 3. НОВОЕ: Интеграция с Gemini 1.5 Flash (Мультимодальность)
+// 3. Интеграция с Gemini 1.5 Flash
 // ==========================================
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -164,10 +174,10 @@ function blobToBase64(blob) {
 
 async function processGeminiAPI() {
   const apiKey = apiKeyInput.value.trim();
-  const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+  const audioBlob = new Blob(audioChunks, { type: audioChunks[0]?.type || 'audio/webm' });
 
   try {
-    statusText.innerText = 'Gemini слушает и редактирует (1 шаг)...';
+    statusText.innerText = 'Gemini слушает и редактирует...';
     const base64Audio = await blobToBase64(audioBlob);
 
     const promptText = `Ты — встроенный ИИ-редактор голосового приложения.
@@ -186,7 +196,7 @@ async function processGeminiAPI() {
         contents: [{
           parts: [
             { text: promptText },
-            { inlineData: { mimeType: 'audio/webm', data: base64Audio } }
+            { inlineData: { mimeType: audioBlob.type || 'audio/webm', data: base64Audio } }
           ]
         }],
         generationConfig: { temperature: 0.2 }
@@ -214,7 +224,7 @@ async function processGeminiAPI() {
 // ==========================================
 async function processWhisperAPI() {
   const apiKey = apiKeyInput.value.trim();
-  const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+  const audioBlob = new Blob(audioChunks, { type: audioChunks[0]?.type || 'audio/webm' });
   const formData = new FormData();
   formData.append('file', audioBlob, 'record.webm');
   formData.append('model', 'whisper-1');
@@ -232,6 +242,8 @@ async function processWhisperAPI() {
       const smartText = await processWithGPT(data.text, apiKey);
       outputField.value += (outputField.value ? '\n\n' : '') + smartText;
       statusText.innerText = 'Готово';
+    } else {
+      statusText.innerText = 'Ошибка Whisper API';
     }
   } catch (error) {
     statusText.innerText = 'Ошибка OpenAI API';
