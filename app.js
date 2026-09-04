@@ -177,7 +177,7 @@ async function processGeminiAPI() {
   const audioBlob = new Blob(audioChunks, { type: audioChunks[0]?.type || 'audio/webm' });
 
   try {
-    statusText.innerText = 'Gemini слушает и редактирует...';
+    statusText.innerText = 'Gemini Pro слушает и редактирует...';
     const base64Audio = await blobToBase64(audioBlob);
 
     const promptText = `Ты — встроенный ИИ-редактор голосового приложения.
@@ -186,10 +186,11 @@ async function processGeminiAPI() {
     2. Автоматически определи язык и отвечай на нем же.
     3. Убери все слова-паразиты, мычания (э-э, ну) и повторы.
     4. Расставь идеальную пунктуацию.
-    5. Исправь оговорки и логические противоречия (например, если спикер сказал "встретимся завтра... хотя нет, в пятницу", напиши только "встретимся в пятницу").
+    5. Исправь оговорки и логические противоречия.
     Выведи ТОЛЬКО финальный чистый текст без приветствий и комментариев.`;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`, {
+    // Заменен эндпоинт: gemini-1.5-pro вместо gemini-1.5-flash
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
