@@ -46,18 +46,20 @@
         <textarea id="outputField" placeholder="Здесь появится распознанный текст..." rows="6"></textarea>
       </section>
 
+      <!-- Блок настроек (модель и API ключ) -->
       <details class="settings-card">
         <summary>⚙️ Настройки распознавания</summary>
         <div class="settings-content">
           <label for="engineSelect">Движок:</label>
           <select id="engineSelect">
             <option value="webspeech">Web Speech API (Быстро, бесплатно)</option>
-            <option value="whisper">OpenAI Whisper API</option>
+            <option value="gemini" selected>Gemini 1.5 Flash (Аудио + Редактура в 1 шаг)</option>
+            <option value="whisper">OpenAI (Whisper + GPT)</option>
           </select>
 
-          <div id="apiKeyGroup" class="hidden">
-            <label for="apiKeyInput">API Key OpenAI:</label>
-            <input type="password" id="apiKeyInput" placeholder="sk-..." />
+          <div id="apiKeyGroup">
+            <label id="apiKeyLabel" for="apiKeyInput">API Key (Google Gemini):</label>
+            <input type="password" id="apiKeyInput" placeholder="AIzaSy..." />
             <small>Ключ сохраняется только локально в вашем браузере.</small>
           </div>
         </div>
