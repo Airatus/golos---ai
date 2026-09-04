@@ -1,4 +1,4 @@
-const CACHE_NAME = 'golos-ai-v3';
+const CACHE_NAME = 'golos-ai-v4';
 const ASSETS = [
   './',
   './index.html',
