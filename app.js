@@ -8,6 +8,7 @@ const copyBtn = document.getElementById('copyBtn');
 const clearBtn = document.getElementById('clearBtn');
 const engineSelect = document.getElementById('engineSelect');
 const apiKeyGroup = document.getElementById('apiKeyGroup');
+const apiKeyLabel = document.getElementById('apiKeyLabel');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const installBtn = document.getElementById('installBtn');
 
@@ -19,31 +20,36 @@ let seconds = 0;
 let speechRecognition = null;
 let deferredPrompt = null;
 
-// Инициализация ключа из LocalStorage
+// Инициализация ключа
 apiKeyInput.value = localStorage.getItem('golos_api_key') || '';
 apiKeyInput.addEventListener('input', (e) => {
   localStorage.setItem('golos_api_key', e.target.value.trim());
 });
 
-// Управление видимостью поля для API ключа
+// Смена движка (меняем подсказки для ключей)
 engineSelect.addEventListener('change', () => {
-  if (engineSelect.value === 'whisper') {
-    apiKeyGroup.classList.remove('hidden');
-  } else {
+  const engine = engineSelect.value;
+  if (engine === 'webspeech') {
     apiKeyGroup.classList.add('hidden');
+  } else {
+    apiKeyGroup.classList.remove('hidden');
+    if (engine === 'gemini') {
+      apiKeyLabel.innerText = 'API Key (Google Gemini):';
+      apiKeyInput.placeholder = 'AIzaSy...';
+    } else {
+      apiKeyLabel.innerText = 'API Key (OpenAI):';
+      apiKeyInput.placeholder = 'sk-...';
+    }
   }
 });
 
 // Кнопка записи
 recordBtn.addEventListener('click', () => {
-  if (!isRecording) {
-    startRecording();
-  } else {
-    stopRecording();
-  }
+  if (!isRecording) startRecording();
+  else stopRecording();
 });
 
-// Логика таймера
+// Таймер
 function startTimer() {
   seconds = 0;
   timerDisplay.innerText = '00:00';
@@ -55,18 +61,15 @@ function startTimer() {
   }, 1000);
 }
 
-function stopTimer() {
-  clearInterval(timerInterval);
-}
+function stopTimer() { clearInterval(timerInterval); }
 
 // Старт записи
 async function startRecording() {
   const engine = engineSelect.value;
-
   if (engine === 'webspeech') {
     startWebSpeech();
   } else {
-    await startWhisperRecord();
+    await startCloudRecord();
   }
 
   isRecording = true;
@@ -80,7 +83,6 @@ async function startRecording() {
 // Остановка записи
 function stopRecording() {
   const engine = engineSelect.value;
-
   if (engine === 'webspeech' && speechRecognition) {
     speechRecognition.stop();
   } else if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -92,60 +94,39 @@ function stopRecording() {
   recordBtn.innerHTML = '🎤';
   pulseRing.classList.remove('active');
   stopTimer();
-  
-  if (engine === 'webspeech') {
-    statusText.innerText = 'Готово';
-  } else {
-    statusText.innerText = 'Обработка аудио...';
-  }
+  statusText.innerText = engine === 'webspeech' ? 'Готово' : 'Обработка аудио...';
 }
 
 // ==========================================
-// 1. Движок: Web Speech API (Офлайн/Браузер)
+// 1. Web Speech API (Офлайн)
 // ==========================================
 function startWebSpeech() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRec) {
-    alert('Ваш браузер не поддерживает Web Speech API. Переключитесь на Whisper API.');
-    stopRecording();
-    return;
-  }
-
+  if (!SpeechRec) return alert('Браузер не поддерживает Web Speech. Выберите Gemini.');
+  
   speechRecognition = new SpeechRec();
   speechRecognition.lang = 'ru-RU';
   speechRecognition.continuous = true;
   speechRecognition.interimResults = true;
 
   speechRecognition.onresult = (event) => {
-    let interimTranscript = '';
+    let interim = '';
     for (let i = event.resultIndex; i < event.results.length; ++i) {
-      if (event.results[i].isFinal) {
-        outputField.value += (outputField.value ? ' ' : '') + event.results[i][0].transcript;
-      } else {
-        interimTranscript += event.results[i][0].transcript;
-      }
+      if (event.results[i].isFinal) outputField.value += (outputField.value ? ' ' : '') + event.results[i][0].transcript;
+      else interim += event.results[i][0].transcript;
     }
   };
-
-  speechRecognition.onerror = (e) => {
-    console.error(e.error);
-    statusText.innerText = 'Ошибка распознавания';
-  };
-
-  speechRecognition.onend = () => {
-    if (isRecording) stopRecording();
-  };
-
+  speechRecognition.onend = () => { if (isRecording) stopRecording(); };
   speechRecognition.start();
 }
 
 // ==========================================
-// 2. Движок: AI Pipeline (Whisper + GPT-4o-mini)
+// 2. Запись для облачных API (Gemini / OpenAI)
 // ==========================================
-async function startWhisperRecord() {
+async function startCloudRecord() {
   const apiKey = apiKeyInput.value.trim();
   if (!apiKey) {
-    alert('Укажите API-ключ OpenAI в настройках!');
+    alert('Укажите API-ключ в настройках!');
     stopRecording();
     return;
   }
@@ -158,93 +139,125 @@ async function startWhisperRecord() {
     mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
     mediaRecorder.onstop = async () => {
       stream.getTracks().forEach((track) => track.stop());
-      await processWhisperAPI();
+      const engine = engineSelect.value;
+      if (engine === 'gemini') await processGeminiAPI();
+      else await processWhisperAPI();
     };
-
     mediaRecorder.start();
   } catch (err) {
-    alert('Не удалось получить доступ к микрофону: ' + err.message);
+    alert('Нет доступа к микрофону: ' + err.message);
     stopRecording();
   }
 }
 
-// Этап 1: Распознавание речи с автоопределением 100+ языков
+// ==========================================
+// 3. НОВОЕ: Интеграция с Gemini 1.5 Flash (Мультимодальность)
+// ==========================================
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function processGeminiAPI() {
+  const apiKey = apiKeyInput.value.trim();
+  const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+
+  try {
+    statusText.innerText = 'Gemini слушает и редактирует (1 шаг)...';
+    const base64Audio = await blobToBase64(audioBlob);
+
+    const promptText = `Ты — встроенный ИИ-редактор голосового приложения.
+    Выполни следующие задачи:
+    1. Распознай речь из прикрепленного аудио.
+    2. Автоматически определи язык и отвечай на нем же.
+    3. Убери все слова-паразиты, мычания (э-э, ну) и повторы.
+    4. Расставь идеальную пунктуацию.
+    5. Исправь оговорки и логические противоречия (например, если спикер сказал "встретимся завтра... хотя нет, в пятницу", напиши только "встретимся в пятницу").
+    Выведи ТОЛЬКО финальный чистый текст без приветствий и комментариев.`;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: promptText },
+            { inlineData: { mimeType: 'audio/webm', data: base64Audio } }
+          ]
+        }],
+        generationConfig: { temperature: 0.2 }
+      })
+    });
+
+    const data = await response.json();
+    
+    if (data.candidates && data.candidates.length > 0) {
+      const cleanText = data.candidates[0].content.parts[0].text;
+      outputField.value += (outputField.value ? '\n\n' : '') + cleanText.trim();
+      statusText.innerText = 'Готово';
+    } else {
+      statusText.innerText = 'Ошибка обработки Gemini API';
+      console.error(data);
+    }
+  } catch (error) {
+    console.error('Ошибка Gemini:', error);
+    statusText.innerText = 'Ошибка соединения';
+  }
+}
+
+// ==========================================
+// 4. OpenAI (Whisper + GPT)
+// ==========================================
 async function processWhisperAPI() {
   const apiKey = apiKeyInput.value.trim();
   const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
   const formData = new FormData();
   formData.append('file', audioBlob, 'record.webm');
   formData.append('model', 'whisper-1');
-  // Параметр 'language' не передаем — Whisper определит язык автоматически
 
   try {
-    statusText.innerText = 'Распознавание речи...';
+    statusText.innerText = 'Шаг 1: Распознавание Whisper...';
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}` },
       body: formData,
     });
-
     const data = await res.json();
-    
     if (data.text) {
-      statusText.innerText = 'Умная редактура и анализ контекста...';
-      
-      // Этап 2: Отправляем сырой текст на смысловую обработку
+      statusText.innerText = 'Шаг 2: Умная редактура GPT...';
       const smartText = await processWithGPT(data.text, apiKey);
-      
       outputField.value += (outputField.value ? '\n\n' : '') + smartText;
       statusText.innerText = 'Готово';
-    } else {
-      statusText.innerText = 'Ошибка распознавания API';
     }
   } catch (error) {
-    console.error(error);
-    statusText.innerText = 'Ошибка отправки файла';
+    statusText.innerText = 'Ошибка OpenAI API';
   }
 }
 
-// Этап 2: Смысловая фильтрация, очистка слов-паразитов и исправление оговорок
 async function processWithGPT(rawText, apiKey) {
-  const systemPrompt = `Ты — встроенный ИИ-редактор голосового приложения. Твоя задача обработать расшифрованный текст:
-1. Автоматически определи язык текста и отвечай на нем же.
-2. Убери все слова-паразиты, мычания (э-э, ну, типа) и повторы.
-3. Расставь идеальную пунктуацию и сделай фразы понятнее.
-4. Исправь оговорки и логические противоречия. Если спикер передумал в процессе (например: "встретимся завтра... хотя нет, лучше в пятницу"), перепиши текст, оставив только финальное решение ("встретимся в пятницу").
-Выведи только готовый чистый текст без лишних комментариев.`;
-
+  const systemPrompt = `Ты — встроенный ИИ-редактор. Определи язык, убери слова-паразиты, расставь пунктуацию и исправь оговорки. Выведи только готовый чистый текст.`;
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: rawText }
-        ],
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: rawText }],
         temperature: 0.2
       })
     });
-
     const gptData = await response.json();
-    if (gptData.choices && gptData.choices.length > 0) {
-      return gptData.choices[0].message.content.trim();
-    }
-    return rawText;
-  } catch (error) {
-    console.error('Ошибка GPT:', error);
-    return rawText; // В случае сбоя возвращаем сырой текст от Whisper
-  }
+    return gptData.choices[0].message.content.trim();
+  } catch (e) { return rawText; }
 }
 
 // ==========================================
-// Утилиты: Копирование, Очистка и Установка PWA
+// Утилиты (Копирование, Сброс, PWA)
 // ==========================================
-
 copyBtn.addEventListener('click', async () => {
   if (!outputField.value) return;
   await navigator.clipboard.writeText(outputField.value);
@@ -257,7 +270,6 @@ clearBtn.addEventListener('click', () => {
   statusText.innerText = 'Нажмите для начала записи';
 });
 
-// Обработка кнопки установки PWA
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -268,8 +280,6 @@ installBtn.addEventListener('click', async () => {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
   const { outcome } = await deferredPrompt.userChoice;
-  if (outcome === 'accepted') {
-    installBtn.classList.add('hidden');
-  }
+  if (outcome === 'accepted') installBtn.classList.add('hidden');
   deferredPrompt = null;
 });
