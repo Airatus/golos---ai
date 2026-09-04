@@ -1,3 +1,4 @@
+// Элементы интерфейса
 const recordBtn = document.getElementById('recordBtn');
 const pulseRing = document.getElementById('pulseRing');
 const timerDisplay = document.getElementById('timer');
@@ -18,11 +19,13 @@ let seconds = 0;
 let speechRecognition = null;
 let deferredPrompt = null;
 
+// Инициализация ключа из LocalStorage
 apiKeyInput.value = localStorage.getItem('golos_api_key') || '';
 apiKeyInput.addEventListener('input', (e) => {
   localStorage.setItem('golos_api_key', e.target.value.trim());
 });
 
+// Управление видимостью поля для API ключа
 engineSelect.addEventListener('change', () => {
   if (engineSelect.value === 'whisper') {
     apiKeyGroup.classList.remove('hidden');
@@ -31,6 +34,7 @@ engineSelect.addEventListener('change', () => {
   }
 });
 
+// Кнопка записи
 recordBtn.addEventListener('click', () => {
   if (!isRecording) {
     startRecording();
@@ -39,6 +43,7 @@ recordBtn.addEventListener('click', () => {
   }
 });
 
+// Логика таймера
 function startTimer() {
   seconds = 0;
   timerDisplay.innerText = '00:00';
@@ -54,6 +59,7 @@ function stopTimer() {
   clearInterval(timerInterval);
 }
 
+// Старт записи
 async function startRecording() {
   const engine = engineSelect.value;
 
@@ -71,6 +77,7 @@ async function startRecording() {
   startTimer();
 }
 
+// Остановка записи
 function stopRecording() {
   const engine = engineSelect.value;
 
@@ -85,9 +92,17 @@ function stopRecording() {
   recordBtn.innerHTML = '🎤';
   pulseRing.classList.remove('active');
   stopTimer();
-  statusText.innerText = 'Обработка...';
+  
+  if (engine === 'webspeech') {
+    statusText.innerText = 'Готово';
+  } else {
+    statusText.innerText = 'Обработка аудио...';
+  }
 }
 
+// ==========================================
+// 1. Движок: Web Speech API (Офлайн/Браузер)
+// ==========================================
 function startWebSpeech() {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRec) {
@@ -119,12 +134,14 @@ function startWebSpeech() {
 
   speechRecognition.onend = () => {
     if (isRecording) stopRecording();
-    statusText.innerText = 'Готово';
   };
 
   speechRecognition.start();
 }
 
+// ==========================================
+// 2. Движок: AI Pipeline (Whisper + GPT-4o-mini)
+// ==========================================
 async function startWhisperRecord() {
   const apiKey = apiKeyInput.value.trim();
   if (!apiKey) {
@@ -151,15 +168,17 @@ async function startWhisperRecord() {
   }
 }
 
+// Этап 1: Распознавание речи с автоопределением 100+ языков
 async function processWhisperAPI() {
   const apiKey = apiKeyInput.value.trim();
   const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
   const formData = new FormData();
   formData.append('file', audioBlob, 'record.webm');
   formData.append('model', 'whisper-1');
-  formData.append('language', 'ru');
+  // Параметр 'language' не передаем — Whisper определит язык автоматически
 
   try {
+    statusText.innerText = 'Распознавание речи...';
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}` },
@@ -167,17 +186,64 @@ async function processWhisperAPI() {
     });
 
     const data = await res.json();
+    
     if (data.text) {
-      outputField.value += (outputField.value ? '\n' : '') + data.text;
+      statusText.innerText = 'Умная редактура и анализ контекста...';
+      
+      // Этап 2: Отправляем сырой текст на смысловую обработку
+      const smartText = await processWithGPT(data.text, apiKey);
+      
+      outputField.value += (outputField.value ? '\n\n' : '') + smartText;
       statusText.innerText = 'Готово';
     } else {
-      statusText.innerText = 'Ошибка обработки API';
+      statusText.innerText = 'Ошибка распознавания API';
     }
   } catch (error) {
     console.error(error);
     statusText.innerText = 'Ошибка отправки файла';
   }
 }
+
+// Этап 2: Смысловая фильтрация, очистка слов-паразитов и исправление оговорок
+async function processWithGPT(rawText, apiKey) {
+  const systemPrompt = `Ты — встроенный ИИ-редактор голосового приложения. Твоя задача обработать расшифрованный текст:
+1. Автоматически определи язык текста и отвечай на нем же.
+2. Убери все слова-паразиты, мычания (э-э, ну, типа) и повторы.
+3. Расставь идеальную пунктуацию и сделай фразы понятнее.
+4. Исправь оговорки и логические противоречия. Если спикер передумал в процессе (например: "встретимся завтра... хотя нет, лучше в пятницу"), перепиши текст, оставив только финальное решение ("встретимся в пятницу").
+Выведи только готовый чистый текст без лишних комментариев.`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: rawText }
+        ],
+        temperature: 0.2
+      })
+    });
+
+    const gptData = await response.json();
+    if (gptData.choices && gptData.choices.length > 0) {
+      return gptData.choices[0].message.content.trim();
+    }
+    return rawText;
+  } catch (error) {
+    console.error('Ошибка GPT:', error);
+    return rawText; // В случае сбоя возвращаем сырой текст от Whisper
+  }
+}
+
+// ==========================================
+// Утилиты: Копирование, Очистка и Установка PWA
+// ==========================================
 
 copyBtn.addEventListener('click', async () => {
   if (!outputField.value) return;
@@ -191,6 +257,7 @@ clearBtn.addEventListener('click', () => {
   statusText.innerText = 'Нажмите для начала записи';
 });
 
+// Обработка кнопки установки PWA
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
