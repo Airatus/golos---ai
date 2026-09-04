@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="description" content="GolosAI — мгновенная транскрибация голоса в текст" />
+  <title>GolosAI — Голосовой блокнот</title>
+  
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-container">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">🎙️</span>
+        <h1>Golos<span>AI</span></h1>
+      </div>
+      <button id="installBtn" class="btn-install hidden" title="Установить приложение">
+        📲 Установить
+      </button>
+    </header>
+
+    <main class="main-content">
+      <section class="record-section">
+        <div class="visualizer-container">
+          <div id="pulseRing" class="pulse-ring"></div>
+          <button id="recordBtn" class="record-btn" aria-label="Начать запись">
+            <span class="mic-icon">🎤</span>
+          </button>
+        </div>
+        <div id="timer" class="timer">00:00</div>
+        <p id="statusText" class="status-text">Нажмите для начала записи</p>
+      </section>
+
+      <section class="result-section">
+        <div class="result-header">
+          <h2>Результат</h2>
+          <div class="result-actions">
+            <button id="copyBtn" class="btn-small" title="Скопировать текст">📋 Копировать</button>
+            <button id="clearBtn" class="btn-small" title="Очистить">🗑 Сброс</button>
+          </div>
+        </div>
+        <textarea id="outputField" placeholder="Здесь появится распознанный текст..." rows="6"></textarea>
+      </section>
+
+      <details class="settings-card">
+        <summary>⚙️ Настройки распознавания</summary>
+        <div class="settings-content">
+          <label for="engineSelect">Движок:</label>
+          <select id="engineSelect">
+            <option value="webspeech">Web Speech API (Быстро, бесплатно)</option>
+            <option value="whisper">OpenAI Whisper API</option>
+          </select>
+
+          <div id="apiKeyGroup" class="hidden">
+            <label for="apiKeyInput">API Key OpenAI:</label>
+            <input type="password" id="apiKeyInput" placeholder="sk-..." />
+            <small>Ключ сохраняется только локально в вашем браузере.</small>
+          </div>
+        </div>
+      </details>
+    </main>
+
+    <footer class="footer">
+      <p>GolosAI Hackathon Edition &bull; PWA Ready</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('SW зарегистрирован:', reg.scope))
+          .catch(err => console.error('Ошибка SW:', err));
+      });
+    }
+  </script>
+</body>
+</html>
